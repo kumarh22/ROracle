@@ -1,0 +1,590 @@
+---
+title: "ROracle : R and Oracle database"
+author: "Kumar Halake"
+date: "12 December 2017"
+output: html_document
+---
+
+Email : [halake.kumar22@gmail.com](halake.kumar22@gmail.com)
+
+### ------------------------------------------------------------------------------------------------------------------
+* The main purpose of this workout is just to know how `ROracle` package is useful to connect, query, fetch table, etc from Oracle RDBMS
+
+* The ODI Cricket dataset contains Country,Player and his runs and score rate with match date.
+ Data pertaining to all ODI's played from **January 1971** to **September 2011** are in this dataset. So obviously  runs and score rates vary if a player is played after **September 2011** 
+
+* The `dplyr` and `ggplot2` packages are aslo used wherever necessary
+
+
+```{r,include=FALSE}
+knitr::opts_chunk$set(warning = FALSE,message = FALSE,comment = "",fig.align = 'center')
+
+library(ROracle)
+library(DBI)
+library(ggplot2)
+library(dplyr)
+library(png)
+library(grid)
+```
+
+### ------------------------------------------------------------------------------------------------------------------
+
+### Creating the Connection
+```{r}
+driver<- Oracle()
+#driver <- dbDriver("Oracle")
+
+ host <- "localhost"
+ port <- 1521
+ service <- "Orcl1"
+ drv <- dbDriver("Oracle")
+
+ connect.string <- paste(
+
+ "(DESCRIPTION=",
+
+ "(ADDRESS=(PROTOCOL=tcp)(HOST=", host, ")(PORT=", port, "))",
+
+ "(CONNECT_DATA=(SERVICE_NAME=", service, ")))", sep = "")
+
+ connection <- dbConnect(drv, username = "system", password = "Oracle_1", dbname = connect.string)
+ 
+ 
+ #connection <- dbConnect(drv = driver, username = "system", password = "Oracle_1")
+```
+
+### ------------------------------------------------------------------------------------------------------------------
+
+### Storing and removing some data in database
+```{r}
+# Store first 10 rows of iris in Oracle database as an 'iris' table
+dbWriteTable(connection, 'IRIS', iris[sample(nrow(iris),10,replace = T),], overwrite = TRUE, row.names = FALSE,col.names = FALSE)
+
+# IMP : The Iris data has some columns of type double. When one see the same data in SQL Developer(What I used), the data totally looks different (eg 3.0 in r is 2.9999999 in SQL) So, manipulating may throw error sometimes in R
+
+# If some queries are sending to same table from SQL developer and ROracle connection, sometimes we get error in R, so better to use one at time
+```
+
+```{sql,connection = connection}
+ SELECT DISTINCT "Species" FROM IRIS
+```
+
+```{sql,connection = connection}
+ SELECT * FROM IRIS
+```
+
+```{r}
+dbExistsTable(connection,'IRIS')  # Check whether iris table exists? -> TRUE / FALSE
+
+dbReadTable(connection, "IRIS") %>% head(n = 10) # Read first 5 rows of iris table in database
+
+dbRemoveTable(connection,'IRIS')  # Remove the table iris,runs only when no query is running like rs
+
+dbExistsTable(connection,'IRIS')  # Whether iris exists yet?
+```
+
+### ------------------------------------------------------------------------------------------------------------------
+
+### Importing the ODI data frame from Oracle to R.
+
+Sometimes for any type of explorations (eg:Graphical), one may need to read the entire table from database. It can be achieved by `dbReadTable`. The table imported is in *Dataframe* format. The Field types are accordingly adjusted.
+
+In oracle database the *ODI* dataset already exist.
+
+```{r}
+ODI = dbReadTable(connection, "ODI")
+glimpse(ODI)
+head(ODI,n=3)
+object.size(ODI)
+class(ODI)
+```
+
+```{sql,connection = connection}
+SELECT TO_CHAR(MIN(MATCHDATE),'DDth-Month-YYYY') Begin,TO_CHAR(Max(MATCHDATE),'DDth-Month-YYYY') "End" FROM ODI
+```
+
+### ------------------------------------------------------------------------------------------------------------------
+
+### Some Commands from `ROracle` package
+
+```{r}
+names(dbGetInfo(connection))
+names(dbGetInfo(driver))
+dbDataType(dbObj = connection,obj = 1:10) # (Dtatype of R object interms of SQL object)
+dbDataType(dbObj = connection,obj = iris)
+dbDataType(dbObj = connection,obj = "what is it?")
+#dbDataType(dbObj = connection,obj = odi)
+dbDataType(ANSI(), 1:5)
+dbDataType(ANSI(), TRUE)
+dbDataType(ANSI(), Sys.Date())
+dbDataType(ANSI(), list(raw(10), raw(20)))
+dbDataType(ANSI(), I(3))
+dbExistsTable(connection,"ODI") # Chech whether table exixts in 
+dbExistsTable(connection,"Some_datatable")
+dbListTables(connection) %>% tail(20) # Checking the list of Tables avaiable in Oracle DB.
+dbListFields(connection,'ODI') # Colnames
+dbListResults(connection) # history
+dbGetException(connection) # last error in the connection
+
+# dbGetInfo(connection)  # Connection details
+# dbGetInfo(driver)  #
+# dbListConnections(drv = driver) # Get host,port,SID in driver
+# dbExecute  # -  number of rows affected by statements
+# dbSendQuery
+# dbGetQuery =  dbSendQuery() + dbFetch() + dbClearResult
+
+# dbGetRowCount #  Number of rows fetched so far
+
+# dbRemoveTable()
+# dbSendStatement()  #  is for DML : UPDATE, DELETE, INSERT INTO, DROP TABLE, ...
+# dbGetRowsAffected # - This method returns the number of rows that were added, deleted, or updated by a data manipulation statement
+
+# dbWriteTable #  read data in Oracle database
+# dbReadTable
+# dbRemoveTable
+# fetch  # fetching certain number of instances
+# dbFetch
+# dbHasCompleted #  This method returns if the operation has completed. A SELECT query is completed if all rows have been fetched. A data manipulation statement is always completed.
+
+# dbIsValid # Is this DBMS object still valid?
+
+# dbBegin # savepoint
+# dbBreak
+# dbCommit
+# dbRollback
+# dbWithTransaction() 
+# sqlAppendTable #  Insert rows into a tabl
+# sqlCreateTable #  Create a simple table
+# sqlData #  Convert a data frame into form suitable for upload to an SQL database
+# transactions # Begin/commit/rollback SQL transactions
+# dbDisconnect()  # Disconnect R from Oracle database
+```
+
+
+Sometimes data may be having larger in size,importing a large volume of data in R is not recommended.
+So just querrying by letting it in database itself is a better choice.
+
+### ------------------------------------------------------------------------------------------------------------------
+
+### SQL Queries
+
+* *Note that the reslut of any SQL query may not be completely displayed in html outpot*
+
+#### number of matches
+```{sql,connection = connection}
+SELECT COUNT(*) FROM ODI /* number of matches */
+```
+
+#### Countrywise average runs
+```{sql,connection = connection}
+SELECT COUNTRY, AVG(RUNS) as avg_runs FROM ODI GROUP BY COUNTRY
+```
+
+#### Merging fields
+```{sql connection=connection}
+SELECT COUNTRY||AVG(RUNS) as Country_avg_Runs FROM ODI GROUP BY COUNTRY
+```
+
+```{sql connection=connection}
+SELECT GROUND||'-'||cOUNT(GROUND) FROM ODI GROUP BY GROUND
+```
+
+```{sql connection=connection}
+SELECT GROUND||'-'||cOUNT(GROUND) AS "GROUNDWISE COUNT" FROM ODI GROUP BY GROUND ORDER BY COUNT(GROUND) DESC
+```
+
+```{sql connection=connection}
+SELECT COUNTRY ||' vs '|| VERSUS ||' at '|| GROUND ||' - ' || COUNT(GROUND) AS "Country-Versus-Ground-n" FROM ODI GROUP BY COUNTRY,VERSUS,GROUND ORDER BY COUNT(GROUND) DESC
+```
+
+### ------------------------------------------------------------------------------------------------------------------
+
+#### Data related to India
+```{sql connection=connection}
+SELECT*FROM ODI WHERE COUNTRY = 'India' /*  Only first 10 rows are displayed */
+```
+
+#### Maximum runs by India versus all countries it played and the corresponding player
+
+```{sql connection=connection}
+SELECT COUNTRY,VERSUS,PLAYER,RUNS FROM ODI WHERE RUNS IN 
+(SELECT MAX(RUNS) AS RUNS FROM ODI WHERE COUNTRY='India' GROUP BY VERSUS) AND COUNTRY = 'India' ORDER BY RUNS DESC
+```
+
+*  Is it correct output ? Check how many opponent countries are there for India. They are 20 not 132
+
+```{sql connection=connection}
+SELECT COUNT(*) FROM (SELECT COUNTRY,VERSUS,PLAYER,RUNS FROM ODI WHERE RUNS IN 
+(SELECT MAX(RUNS) AS RUNS FROM ODI WHERE COUNTRY='India' GROUP BY VERSUS) AND COUNTRY = 'India' ORDER BY RUNS DESC)
+```
+
+```{sql, connection = connection}
+SELECT COUNT(DISTINCT VERSUS) FROM ODI WHERE COUNTRY = 'India'
+```
+
+```{sql connection=connection}
+SELECT o.COUNTRY, o.VERSUS,o.MATCHDATE,o.PLAYER,o.RUNS FROM ODI o JOIN 
+(SELECT COUNTRY,VERSUS, MAX(RUNS) AS highest_runs FROM ODI WHERE COUNTRY = 'India' GROUP BY COUNTRY,VERSUS) d 
+ON o.COUNTRY=d.COUNTRY AND o.VERSUS = d.VERSUS AND o.RUNS = d.highest_runs ORDER BY o.RUNS DESC
+```
+
+* 21 rows because same highest runs in 1999 and 2005 by **Sourav C Ganguly** and **Mahendra S Dhoni** respectively against **Sri Lanka**
+
+<!-- ```{sql connection=connection} -->
+<!-- SELECT o.COUNTRY, o.VERSUS, MAX(o.RUNS) AS highest_runs FROM ODI o INNER JOIN ODI d ON o.highest_runs = d.RUNS, o.COUNTRY = d.COUNTRY, o.VERSUS = d.VERSUS WHERE o.COUNTRY = 'India' GROUP BY o.COUNTRY, o.VERSUS ORDER BY O.highest_runs DESC -->
+<!-- /* The aggregation function must come in getting joined table, not in joining table -->
+<!-- ``` -->
+
+### ------------------------------------------------------------------------------------------------------------------
+
+#### Maximum runs of each player and the country he belongs to
+```{sql connection=connection}
+SELECT COUNTRY,PLAYER,MAX(RUNS) AS RUNS FROM ODI GROUP BY COUNTRY,PLAYER
+```
+
+#### Country ever having more runs than max runs by India  
+```{sql connection=connection}
+SELECT COUNTRY,RUNS FROM ODI WHERE RUNS > (SELECT MAX(RUNS) AS RUNS FROM ODI WHERE COUNTRY = 'India' GROUP BY COUNTRY) /* No country */
+```
+
+* The same result is achieved by JOIN also. Joins are recommended over nested Subqueries like above
+
+```{sql connection=connection}
+SELECT o.COUNTRY,O.RUNS FROM ODI o JOIN 
+(SELECT COUNTRY,MAX(RUNS) AS max_run FROM ODI WHERE COUNTRY = 'India' GROUP BY COUNTRY) b
+ON o.COUNTRY = b.COUNTRY AND o.RUNS >b.max_run
+/* No country, by putting >=, will get India only */
+```
+
+### ------------------------------------------------------------------------------------------------------------------
+
+####  Score rate variation for different Countries
+```{sql connection=connection}
+SELECT COUNTRY, stddev(SCORERATE) sd FROM ODI GROUP BY COUNTRY ORDER BY sd 
+```
+
+### ------------------------------------------------------------------------------------------------------------------
+
+### R QUERIES
+
+#### Fetch and save in R 
+
+Here, the previous SQL query output is saved in R as dataframe, so one can use to to explore in different ways like graphs.
+
+```{r}
+df <- dbGetQuery(connection,"SELECT DISTINCT TO_CHAR(MATCHDATE,'YYYY') FROM ODI")
+class(df)       # It is dataframe
+typeof(df)
+colnames(df)  # default column name
+class(df$`TO_CHAR(MATCHDATE,'YYYY')`)  # It is character
+head(df)
+object.size(df)
+```
+
+### ------------------------------------------------------------------------------------------------------------------
+
+#### Monthwise number of matches
+```{r,fig.height=5}
+  dbGetQuery(connection,statement = "SELECT TO_CHAR(MATCHDATE,'mm') MONTH FROM ODI") %>%
+  ggplot() +
+  geom_bar(aes(x = as.numeric(MONTH)),stat = "count",fill = rainbow(12),alpha = 0.6) +
+  theme(panel.grid = element_blank(),panel.background = element_blank(),
+        axis.ticks = element_blank(),axis.text.x = element_text(angle = 90))+
+  scale_x_discrete(limits = 1:12, labels = month.name) +
+  labs(y = "Number of matches", x = "Month", title = "Matches in each month")+
+  theme(plot.title = element_text(face = "bold",color = "gray83",hjust = 0.5,size = 12))
+```
+
+### ------------------------------------------------------------------------------------------------------------------
+
+#### Number of matches per Year and month
+```{r,fig.height=7,fig.width=12}
+dbGetQuery(connection,"SELECT TO_CHAR(MATCHDATE,'YYYY') YEAR, TO_CHAR(MATCHDATE,'MM') MONTH FROM ODI") %>%
+  ggplot() +
+  geom_bar(aes(x = YEAR,fill = as.factor(MONTH)), stat = "count",color = "purple",alpha = 0.9,size = 0.04) +
+  theme(axis.text.x.top = element_text(angle = 90),
+        panel.background = element_rect(fill = "gray80"),
+        plot.background = element_rect(fill = "gray80"),
+        axis.ticks = element_blank(),
+        legend.background = element_rect(fill = "gray83"),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.x = element_line(colour = "gray40",linetype = 3,lineend = 'butt')) +
+  scale_y_continuous(expand = c(0.0,0),breaks = seq(0,3500,by = 250)) +
+  scale_fill_brewer(name = 'Months',labels = month.name,palette = "Set3",direction = 1) +
+  coord_flip()
+```
+
+
+* Normally in any given year, most number of matches were played in first quarter
+* 1971 and 1972 are the beginning years where match happened only in a single monthyear
+* From the year 1991 we see some seasonal pattern interms of yerly number of matches.
+ (the number of matches are relatively less in 1991, but in next consecutive 3 years it increased. Again number reduced in 1995 and tremendous increase in next 3 years)
+
+### ------------------------------------------------------------------------------------------------------------------
+
+#### India's highest runs against different opponents
+
+```{r,fig.height=5,fig.width=5}
+dbGetQuery(connection,
+"SELECT o.COUNTRY, o.VERSUS,o.MATCHDATE,o.PLAYER,o.RUNS FROM ODI o JOIN 
+(SELECT COUNTRY,VERSUS, MAX(RUNS) AS highest_runs FROM ODI WHERE COUNTRY = 'India' GROUP BY COUNTRY,VERSUS) d
+ON o.COUNTRY=d.COUNTRY AND o.VERSUS = d.VERSUS AND o.RUNS = d.highest_runs ORDER BY o.RUNS DESC") %>% 
+  group_by(VERSUS) %>% summarise(RUNS = mean(RUNS)) %>% # Srilanka is twice,we need unique so
+  ggplot() + geom_bar(aes(x = reorder(VERSUS,RUNS), y = RUNS),stat = "identity",fill = "springgreen") +
+  labs(x="Opponent", y ="Maximum Runs",title = "Maximum Runs of India") + coord_flip() +
+  theme_bw()
+```
+
+### ------------------------------------------------------------------------------------------------------------------
+
+#### Top number of centuries
+
+```{sql,connection = connection}
+SELECT PLAYER,COUNT(PLAYER) CENTURY FROM ODI WHERE RUNS >= 100 GROUP BY PLAYER ORDER BY CENTURY DESC FETCH NEXT 21 ROWS ONLY
+```
+
+```{r,fig.height=5.5,fig.width=12}
+img <- readPNG("sachin-transpa-2.png") 
+g <- rasterGrob(img, interpolate=TRUE) 
+
+  dbGetQuery(connection,
+             statement = "SELECT PLAYER,COUNT(PLAYER) CENTURY FROM ODI WHERE RUNS >= 100 GROUP BY PLAYER ORDER BY CENTURY DESC FETCH NEXT 21 ROWS ONLY") %>%
+  ggplot(aes(x = reorder(PLAYER,desc(CENTURY)),y = CENTURY)) +
+    annotation_custom(g, xmin=-Inf, xmax=Inf, ymin=-Inf, ymax=Inf) + 
+    geom_bar(stat = "identity",fill = rainbow(21),alpha = 0.6) +
+    geom_text(aes(label = CENTURY,size =CENTURY),show.legend = FALSE,vjust = - 0.09,color = rainbow(21)) +
+    theme(panel.grid = element_blank(),
+          panel.background = element_rect(fill = "gray80"),
+          plot.background = element_rect(fill = "gray80"),
+          axis.ticks = element_blank(),axis.text.x = element_text(angle = 90,hjust = 1.0)) +
+    scale_y_continuous(limits = c(0,52),labels = NULL) + 
+    labs(y = "", x = "Batsman", title = "Top number of centuries") +
+    theme(plot.title = element_text(face = "bold",color = "white",hjust = 0.5,size = 12))
+```
+
+### ------------------------------------------------------------------------------------------------------------------
+
+#### Some functions `dbSendQuery`,`dbGetStatement`,`dbGetRowsAffected`,`fetch`
+
+```{r}
+q = "SELECT COUNTRY,VERSUS,PLAYER,RUNS FROM ODI WHERE COUNTRY = 'India'"
+
+rs = dbSendQuery(connection,q)
+rs
+dbGetStatement(rs)
+
+dbGetRowsAffected(rs)
+
+dbColumnInfo(rs)
+
+dbHasCompleted(rs)
+
+fetched1 = fetch(rs,25) # Once first n instances are fetched, they wont be fetched again,In the next fetch, fetching start from next instance only. If no mention of n, all instances are fetched 
+
+fetched2 = fetch(rs) # If dont give n, it will fetch remaining instances from DBIresult as a subset : fetch2
+
+dbHasCompleted(rs)
+
+fetched1 # dont forget, It is dataframe
+
+fetched = rbind(fetched1,fetched2) # At the begining itself would have used fetched = fetch(rs)
+
+dbGetRowCount(rs)  # s the number of rows fetched so far.
+
+dbClearResult(rs)  # after setting dbClearResult(rs); print(rs)  produces an error, as it is cleared
+```
+
+ Fetching is helpful when there is limitation on fetching instances from database
+
+### ------------------------------------------------------------------------------------------------------------------
+
+#### Top 20 Indian player's interms of average score rate
+```{sql connection=connection}
+SELECT COUNTRY,PLAYER,AVG(SCORERATE) AS AVG_SCORE_RATE FROM ODI WHERE COUNTRY = 'India' GROUP BY COUNTRY,PLAYER  ORDER BY AVG_SCORE_RATE DESC FETCH NEXT 20 ROWS ONLY
+/* FETCH FIRST 20 ROWS ONLY */
+```
+
+```{r,fig.height=5}
+q = "SELECT COUNTRY,PLAYER,AVG(SCORERATE) AS AVG_SCORE_RATE FROM ODI WHERE COUNTRY = 'India' GROUP BY COUNTRY,PLAYER  ORDER BY AVG_SCORE_RATE DESC"
+rs = dbSendQuery(connection,q)
+fetch(rs,20) %>% ggplot() + 
+  geom_bar(aes(x = reorder(PLAYER,AVG_SCORE_RATE),y = AVG_SCORE_RATE),
+           stat="identity",fill = rainbow(20),width = .6,alpha = 0.6) +
+  labs(x = "Top 20 Players",y = "Average Score rate",title ="") + coord_flip() + theme_light()
+dbClearResult(rs)
+```
+
+### ------------------------------------------------------------------------------------------------------------------
+
+#### Top Players interms of average score rate for all countries
+
+There are some players who played once or twice and their score rate would be either very high or very low.
+So we consider a player who played more than 5 ODI's (This choice is subjective, so please no question - *WHY 5?*)
+
+```{sql,connection = connection}
+ SELECT COUNT(*) FROM (SELECT COUNTRY,PLAYER, AVG(SCORERATE) AVG_SCORE_RATE,COUNT(*) MATCHES FROM ODI GROUP BY COUNTRY,PLAYER)
+```
+
+```{sql,connection = connection}
+SELECT COUNT(*) FROM (SELECT COUNTRY,PLAYER, AVG(SCORERATE) AVG_SCORE_RATE,COUNT(*) MATCHES FROM ODI HAVING COUNT(*) > 5 GROUP BY COUNTRY,PLAYER)
+```
+
+```{r,echo=FALSE}
+cat(c("Almost",1937-1174,"Players played 5 or less matches"))
+```
+
+```{r,fig.width=12,fig.height=20}
+q = "SELECT COUNTRY,PLAYER, AVG(SCORERATE) AVG_SCORE_RATE,COUNT(*) MATCHES FROM ODI HAVING COUNT(*) > 5 GROUP BY COUNTRY,PLAYER"
+rs = dbSendQuery(connection,q)
+fetched = fetch(rs) #dbFetch is also useful
+country_list = split(x = fetched,f = fetched$COUNTRY)
+
+top_20_each <- lapply(X = country_list, FUN = function(x) top_n(x,20))
+
+g = list()
+j = 1
+while(j <= length(top_20_each)){
+  for(i in names(top_20_each)){
+    g[[j]] = ggplot(top_20_each[[i]],aes(x = reorder(PLAYER,AVG_SCORE_RATE),y = AVG_SCORE_RATE)) + 
+      geom_bar(stat = "identity",width = 0.25,fill = "white",color = "steelblue1") +
+      scale_y_continuous(breaks = seq(0,120,by = 40),limits = c(0,120),labels = seq(0,120,by = 40)) +
+      labs(x = "",y = "",title = i) +
+      theme_minimal() +
+      theme(plot.title = element_text(size = 8),axis.title = element_text(size = 7)) +
+      coord_flip()
+    j = j+1
+  }
+}
+
+do.call(gridExtra::grid.arrange,c(g,ncol = 3))
+dbClearResult(rs)
+```
+
+### ------------------------------------------------------------------------------------------------------------------
+
+#### Correlation between Runs and scorerate for England Players
+```{r,fig.height=6.8}
+q = "SELECT PLAYER,RUNS,SCORERATE FROM ODI WHERE COUNTRY = 'England'"
+
+dbGetQuery(connection,statement = q) %>%
+  group_by(PLAYER) %>%
+  summarise(correlation = cor(RUNS,SCORERATE)) %>%
+  filter(abs(correlation) > 0.8) %>%
+  ggplot(aes(x = reorder(PLAYER,correlation),y = correlation)) +
+  geom_dotplot(binaxis='y', stackdir='center',
+           stat = "identity",radius = 0.2, fill = rainbow(42)) +
+  labs(x = "Player",title = "Correlation between Score rate and Runs",subtitle = "[For England Only]") +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        plot.background = element_rect(fill = "gray90")) +
+  coord_flip()
+
+# dbGetQuery(connection,statement = q) %>% 
+#   group_by(PLAYER) %>% 
+#   summarise(correlation = cor(RUNS,SCORERATE)) %>% 
+#   filter(abs(correlation) > 0.8) %>% 
+#   ggplot(aes(x = reorder(PLAYER,correlation),y = correlation)) +
+#   geom_point(size = 5, color = rainbow(42),pch =19) +
+#   labs(x = "Player",title = "Correlation between Score rate and Runs") +
+#   theme(panel.grid = element_blank(),plot.background = element_rect(fill = "gray90")) +
+#   coord_flip()
+```
+
+
+ Here we have noticed two outliers, *Alex Jeremy Tudor* and *Geoffrey W Humpage*, whose correlation is perfect -ve.
+
+### ------------------------------------------------------------------------------------------------------------------
+
+```{r}
+q = "SELECT*FROM ODI WHERE COUNTRY = 'England' AND PLAYER IN ('Alex Jeremy Tudor','Geoffrey W Humpage')"
+rs = dbSendQuery(connection,q)
+outliers = dbFetch(res = rs, n = -1)
+outliers= mutate(outliers,balls_faced = SCORERATE*RUNS/100)
+outliers
+dbClearResult(rs)
+```
+
+This is because both the players played only in 1981 and 2002 and not even played for a complete over.
+
+#### The rare players
+
+ Number of players played only once (In time period from 1971 to 2011)
+```{r}
+q = "SELECT COUNTRY,PLAYER,COUNT(PLAYER) AS MATCHES  FROM ODI GROUP BY COUNTRY,PLAYER HAVING COUNT(PLAYER) = 1"
+rs = dbSendQuery(connection,q)
+rare = dbFetch(res = rs, n = -1)
+rare %>% group_by(COUNTRY) %>% summarise(rare_players = sum(MATCHES)) %>% arrange(desc(rare_players))
+dbClearResult(rs)
+```
+
+Totally 225 players in ODI from 1971 to 2011 played once.
+
+### ------------------------------------------------------------------------------------------------------------------
+
+#### Long time career in ODI
+
+Note that this is different than the number of ODI's played
+
+
+```{r,fig.width=10,fig.height=6,fig.align='center'}
+q = 'SELECT PLAYER ,BEGIN,"END",MED,"END" - BEGIN AS DAYS,("END" - BEGIN)/365 AS YEAR FROM
+(SELECT PLAYER,MIN(MATCHDATE) BEGIN,MAX(MATCHDATE) "END",MEDIAN(MATCHDATE) MED FROM ODI GROUP BY PLAYER) ORDER BY YEAR DESC FETCH NEXT 20 ROWS ONLY'
+# aes(x = reorder(PLAYER,DIFF),y=DIFF)
+rs = dbSendQuery(connection,q)
+dbFetch(rs,n= -1) %>% ggplot() + 
+  geom_errorbar(aes(x = reorder(PLAYER,YEAR),ymin=BEGIN,ymax = END),stat="identity",size = 7.5,color = rainbow(20))+
+  geom_text(aes(x = reorder(PLAYER,YEAR),y=MED,label = paste(PLAYER,',',round(YEAR,2),'years'),size = 7)) +
+  theme(axis.text.y = element_blank(),
+        legend.position = 'none',
+        axis.ticks = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text.x = element_text(angle = 90),
+        panel.background = element_rect(fill = 'gray70'),
+        panel.grid.major.y = element_line(colour = "gray50",linetype = 3),
+        panel.grid.major.x = element_line(colour = "gray50",linetype = 2),
+        panel.grid.minor.x = element_line(colour = "gray50",linetype = 2),
+        plot.background = element_rect(fill = 'gray70')) +
+  labs(x = "",y = "Year") + 
+  coord_flip()
+
+dbClearResult(rs)
+```
+
+### ------------------------------------------------------------------------------------------------------------------
+
+##### Stephen B Smith (Outlier in above graph
+
+Firstly let us see what are different percentiles(25th,50th,75th and 90th) of all years played by these players.
+
+```{sql,connection=connection}
+SELECT PLAYER ,BEGIN,"END",PERCENTILE_25,"MEDIAN",PERCENTILE_75,PERCENTILE_95,"END" - BEGIN AS DAYS,("END" - BEGIN)/365 AS YEARS FROM
+(SELECT PLAYER,MIN(MATCHDATE) BEGIN,MAX(MATCHDATE) "END",
+PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY MATCHDATE ASC) PERCENTILE_25 ,
+PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY MATCHDATE ASC) "MEDIAN",
+PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY MATCHDATE ASC) PERCENTILE_75 ,
+PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY MATCHDATE ASC) PERCENTILE_95 FROM ODI GROUP BY PLAYER)
+ORDER BY YEARS DESC FETCH NEXT 10 ROWS ONLY
+```
+
+We see that almost 95% of matches played by **Stephen B Smith** are on or before *1985-02-04*.
+
+```{r}
+q = "SELECT TO_CHAR(MATCHDATE,'YYYY') STEPHEN_YEARS FROM ODI WHERE COUNTRY = 'Australia' AND PLAYER = 'Stephen B Smith'"
+dbGetQuery(connection,statement = q) %>% table
+```
+
+I wonder whether **Stephen B Smith** played in ODI after 25 years (in 2011 since 1985)?
+OR another player with same name entered in Australian team. This dataset doesen't have evidence for that.
+
+#### Finally disconnecting from database
+```{r}
+dbDisconnect(connection)
+```
+
+### ------------------------------------------------------------------------------------------------------------------
+
+[**REFERENCE : ** https://cran.r-project.org/web/packages/ROracle/ROracle.pdf](https://cran.r-project.org/web/packages/ROracle/ROracle.pdf)
+
+
+###****************************************************************************************************
